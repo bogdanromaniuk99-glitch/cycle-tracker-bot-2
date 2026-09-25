@@ -29,6 +29,7 @@ class CheckIn(StatesGroup):
     health_note       = State()
     relationship      = State()
     relationship_note = State()
+    intimacy          = State()
     motivation        = State()
     motivation_note   = State()
     cycle_day         = State()
@@ -42,8 +43,21 @@ def score_keyboard(prefix: str) -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(inline_keyboard=[buttons])
 
+def intimacy_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Так — я ініціатор", callback_data="intimacy:me")],
+        [InlineKeyboardButton(text="Так — дружина ініціатор", callback_data="intimacy:wife")],
+        [InlineKeyboardButton(text="Ні", callback_data="intimacy:no")],
+    ])
+
 LABELS = {1: "1 — дуже погано", 2: "2 — погано", 3: "3 — нормально",
           4: "4 — добре", 5: "5 — відмінно"}
+
+INTIMACY_LABELS = {
+    "me": "Так — я ініціатор",
+    "wife": "Так — дружина ініціатор",
+    "no": "Ні",
+}
 
 NOTE_PROMPT = "_(коротко про причину, або '-' якщо нічого додати)_"
 
@@ -147,9 +161,21 @@ async def q_relationship_note(message: Message, state: FSMContext):
         return
     note = "" if message.text.strip() == "-" else message.text.strip()
     await state.update_data(relationship_note=note)
+    await state.set_state(CheckIn.intimacy)
+    await message.answer("❤️ Чи був сьогодні секс?", reply_markup=intimacy_keyboard())
+
+# ── INTIMACY ──────────────────────────────────────────────────────────────────
+@dp.callback_query(CheckIn.intimacy, F.data.startswith("intimacy:"))
+async def q_intimacy(callback: CallbackQuery, state: FSMContext):
+    key = callback.data.split(":")[1]
+    await state.update_data(intimacy=INTIMACY_LABELS[key])
+    await callback.message.edit_text(
+        f"❤️ Секс сьогодні: *{INTIMACY_LABELS[key]}*", parse_mode="Markdown"
+    )
     await state.set_state(CheckIn.motivation)
-    await message.answer("🔥 Мотивація на роботі?",
-                         reply_markup=score_keyboard("motivation"))
+    await callback.message.answer("🔥 Мотивація на роботі?",
+                                   reply_markup=score_keyboard("motivation"))
+    await callback.answer()
 
 # ── MOTIVATION ────────────────────────────────────────────────────────────────
 @dp.callback_query(CheckIn.motivation, F.data.startswith("motivation:"))
@@ -209,6 +235,7 @@ async def q_notes(message: Message, state: FSMContext):
         "health_note":       data.get("health_note", ""),
         "relationship":      data.get("relationship", ""),
         "relationship_note": data.get("relationship_note", ""),
+        "intimacy":          data.get("intimacy", ""),
         "motivation":        data.get("motivation", ""),
         "motivation_note":   data.get("motivation_note", ""),
         "cycle_day":         data.get("cycle_day", ""),
@@ -222,6 +249,7 @@ async def q_notes(message: Message, state: FSMContext):
             f"😌 Настрій: {row['mood']}" + (f" — _{row['mood_note']}_" if row['mood_note'] else "") + "\n"
             f"💪 Здоров'я: {row['health']}" + (f" — _{row['health_note']}_" if row['health_note'] else "") + "\n"
             f"💬 Стосунки: {row['relationship']}" + (f" — _{row['relationship_note']}_" if row['relationship_note'] else "") + "\n"
+            f"❤️ Секс: {row['intimacy']}\n"
             f"🔥 Мотивація: {row['motivation']}" + (f" — _{row['motivation_note']}_" if row['motivation_note'] else "") + "\n"
             f"📅 Цикл: {row['cycle_day'] or '—'}\n"
             f"📝 {row['notes'] or '—'}",
@@ -246,6 +274,7 @@ async def cmd_last(message: Message):
             text += (
                 f"*{r['date']}*\n"
                 f"😌{r['mood']} 💪{r['health']} 💬{r['relationship']} 🔥{r['motivation']}"
+                + (f"\n❤️ _{r.get('intimacy', '')}_" if r.get('intimacy') else "")
                 + (f"\n📅 _{r.get('cycle_day', '')}_" if r.get('cycle_day') else "")
                 + (f"\n_{r.get('notes', '')}_" if r.get('notes') else "")
                 + "\n\n"
