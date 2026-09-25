@@ -12,14 +12,38 @@ import sheets
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BOT_TOKEN = "8635126806:AAFP-bJLAZgnASFNihhLTviyktvsopiQ9dc"
-MY_CHAT_ID = 829596300
 CHECKIN_HOUR = 21
 CHECKIN_MINUTE = 0
+
+USERS = {
+    829596300: {
+        "sheet": "CycleTracker",
+        "relationship_q": "💬 Як стосунки з дружиною сьогодні?",
+        "cycle_q": (
+            "📅 Фаза циклу дружини?\n"
+            "_(наприклад: '3 день місячних', '5 днів до місячних', 'після овуляції'. "
+            "Якщо не знаєш — введи '-')_"
+        ),
+    },
+    # ↓ заміни 0 на chat_id дружини (бот підкаже його при /start)
+    0: {
+        "sheet": "CycleTrackerWife",
+        "relationship_q": "💬 Як стосунки з чоловіком сьогодні?",
+        "cycle_q": (
+            "📅 Де ти зараз по циклу?\n"
+            "_(наприклад: '3 день місячних', '5 днів до місячних', 'овуляція'. "
+            "Якщо не знаєш — введи '-')_"
+        ),
+    },
+}
 
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
+
+def cfg(chat_id: int):
+    return USERS.get(chat_id)
 
 # ── FSM States ────────────────────────────────────────────────────────────────
 class CheckIn(StatesGroup):
@@ -46,7 +70,7 @@ def score_keyboard(prefix: str) -> InlineKeyboardMarkup:
 def intimacy_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Так — я ініціатор", callback_data="intimacy:me")],
-        [InlineKeyboardButton(text="Так — дружина ініціатор", callback_data="intimacy:wife")],
+        [InlineKeyboardButton(text="Так — не я ініціатор", callback_data="intimacy:partner")],
         [InlineKeyboardButton(text="Ні", callback_data="intimacy:no")],
     ])
 
@@ -55,7 +79,7 @@ LABELS = {1: "1 — дуже погано", 2: "2 — погано", 3: "3 — �
 
 INTIMACY_LABELS = {
     "me": "Так — я ініціатор",
-    "wife": "Так — дружина ініціатор",
+    "partner": "Так — не я ініціатор",
     "no": "Ні",
 }
 
@@ -64,7 +88,11 @@ NOTE_PROMPT = "_(коротко про причину, або '-' якщо ні�
 # ── Start ─────────────────────────────────────────────────────────────────────
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    if message.chat.id != MY_CHAT_ID:
+    if not cfg(message.chat.id):
+        await message.answer(
+            f"🔧 Цей чат ще не підключений.\nchat_id: `{message.chat.id}`",
+            parse_mode="Markdown"
+        )
         return
     await message.answer(
         "👋 Привіт! Я твій щоденний трекер.\n\n"
@@ -76,22 +104,28 @@ async def cmd_start(message: Message):
 # ── Manual trigger ────────────────────────────────────────────────────────────
 @dp.message(F.text == "/checkin")
 async def manual_checkin(message: Message, state: FSMContext):
-    if message.chat.id != MY_CHAT_ID:
+    if not cfg(message.chat.id):
         return
-    await start_checkin(state)
+    await start_checkin(message.chat.id, state)
 
 # ── Scheduled trigger ─────────────────────────────────────────────────────────
 async def scheduled_checkin():
-    state = dp.fsm.get_context(bot, MY_CHAT_ID, MY_CHAT_ID)
-    await start_checkin(state)
+    for chat_id in USERS:
+        if chat_id == 0:
+            continue
+        state = dp.fsm.get_context(bot, chat_id, chat_id)
+        try:
+            await start_checkin(chat_id, state)
+        except Exception as e:
+            logging.error(f"checkin failed for {chat_id}: {e}")
 
-async def start_checkin(state: FSMContext):
+async def start_checkin(chat_id: int, state: FSMContext):
     await state.clear()
     await state.set_state(CheckIn.mood)
     await bot.send_message(
-        MY_CHAT_ID,
+        chat_id,
         f"🌙 *Вечірній check-in* — {datetime.now().strftime('%d.%m.%Y')}\n\n"
-        "😌 Як твій загальний настрій сьогодні?",
+        "😌 Який твій загальний настрій сьогодні?",
         parse_mode="Markdown",
         reply_markup=score_keyboard("mood")
     )
@@ -111,7 +145,7 @@ async def q_mood(callback: CallbackQuery, state: FSMContext):
 
 @dp.message(CheckIn.mood_note)
 async def q_mood_note(message: Message, state: FSMContext):
-    if message.chat.id != MY_CHAT_ID:
+    if not cfg(message.chat.id):
         return
     note = "" if message.text.strip() == "-" else message.text.strip()
     await state.update_data(mood_note=note)
@@ -134,12 +168,13 @@ async def q_health(callback: CallbackQuery, state: FSMContext):
 
 @dp.message(CheckIn.health_note)
 async def q_health_note(message: Message, state: FSMContext):
-    if message.chat.id != MY_CHAT_ID:
+    conf = cfg(message.chat.id)
+    if not conf:
         return
     note = "" if message.text.strip() == "-" else message.text.strip()
     await state.update_data(health_note=note)
     await state.set_state(CheckIn.relationship)
-    await message.answer("💬 Як стосунки з дружиною сьогодні?",
+    await message.answer(conf["relationship_q"],
                          reply_markup=score_keyboard("relationship"))
 
 # ── RELATIONSHIP ──────────────────────────────────────────────────────────────
@@ -157,7 +192,7 @@ async def q_relationship(callback: CallbackQuery, state: FSMContext):
 
 @dp.message(CheckIn.relationship_note)
 async def q_relationship_note(message: Message, state: FSMContext):
-    if message.chat.id != MY_CHAT_ID:
+    if not cfg(message.chat.id):
         return
     note = "" if message.text.strip() == "-" else message.text.strip()
     await state.update_data(relationship_note=note)
@@ -192,22 +227,18 @@ async def q_motivation(callback: CallbackQuery, state: FSMContext):
 
 @dp.message(CheckIn.motivation_note)
 async def q_motivation_note(message: Message, state: FSMContext):
-    if message.chat.id != MY_CHAT_ID:
+    conf = cfg(message.chat.id)
+    if not conf:
         return
     note = "" if message.text.strip() == "-" else message.text.strip()
     await state.update_data(motivation_note=note)
     await state.set_state(CheckIn.cycle_day)
-    await message.answer(
-        "📅 Фаза циклу дружини?\n"
-        "_(наприклад: '3 день місячних', '5 днів до місячних', 'після овуляції'. "
-        "Якщо не знаєш — введи '-')_",
-        parse_mode="Markdown"
-    )
+    await message.answer(conf["cycle_q"], parse_mode="Markdown")
 
 # ── CYCLE DAY ─────────────────────────────────────────────────────────────────
 @dp.message(CheckIn.cycle_day)
 async def q_cycle_day(message: Message, state: FSMContext):
-    if message.chat.id != MY_CHAT_ID:
+    if not cfg(message.chat.id):
         return
     cycle = "" if message.text.strip() == "-" else message.text.strip()
     await state.update_data(cycle_day=cycle)
@@ -221,7 +252,8 @@ async def q_cycle_day(message: Message, state: FSMContext):
 # ── FINAL NOTES + SAVE ────────────────────────────────────────────────────────
 @dp.message(CheckIn.notes)
 async def q_notes(message: Message, state: FSMContext):
-    if message.chat.id != MY_CHAT_ID:
+    conf = cfg(message.chat.id)
+    if not conf:
         return
     notes = "" if message.text.strip() == "-" else message.text.strip()
     data = await state.get_data()
@@ -243,7 +275,7 @@ async def q_notes(message: Message, state: FSMContext):
     }
 
     try:
-        sheets.append_row(row)
+        sheets.append_row(conf["sheet"], row)
         await message.answer(
             "✅ *Збережено!*\n\n"
             f"😌 Настрій: {row['mood']}" + (f" — _{row['mood_note']}_" if row['mood_note'] else "") + "\n"
@@ -262,10 +294,11 @@ async def q_notes(message: Message, state: FSMContext):
 # ── Last entries ──────────────────────────────────────────────────────────────
 @dp.message(F.text == "/last")
 async def cmd_last(message: Message):
-    if message.chat.id != MY_CHAT_ID:
+    conf = cfg(message.chat.id)
+    if not conf:
         return
     try:
-        rows = sheets.get_last_rows(7)
+        rows = sheets.get_last_rows(conf["sheet"], 7)
         if not rows:
             await message.answer("Записів ще немає.")
             return
