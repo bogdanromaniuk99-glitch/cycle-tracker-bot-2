@@ -90,8 +90,7 @@ NOTE_PROMPT = "_(коротко про причину, або '-' якщо ні�
 async def cmd_start(message: Message):
     if not cfg(message.chat.id):
         await message.answer(
-            f"🔧 Цей чат ще не підключений.\nchat_id: `{message.chat.id}`",
-            parse_mode="Markdown"
+            f"Цей чат ще не підключений.\nchat_id: {message.chat.id}"
         )
         return
     await message.answer(
