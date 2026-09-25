@@ -25,8 +25,7 @@ USERS = {
             "Якщо не знаєш — введи '-')_"
         ),
     },
-    # ↓ заміни 0 на chat_id дружини (бот підкаже його при /start)
-    0: {
+    526756037: {
         "sheet": "CycleTrackerWife",
         "relationship_q": "💬 Як стосунки з чоловіком сьогодні?",
         "cycle_q": (
@@ -110,8 +109,6 @@ async def manual_checkin(message: Message, state: FSMContext):
 # ── Scheduled trigger ─────────────────────────────────────────────────────────
 async def scheduled_checkin():
     for chat_id in USERS:
-        if chat_id == 526756037:
-            continue
         state = dp.fsm.get_context(bot, chat_id, chat_id)
         try:
             await start_checkin(chat_id, state)
