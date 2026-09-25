@@ -14,6 +14,7 @@ HEADERS = [
     "mood", "mood_note",
     "health", "health_note",
     "relationship", "relationship_note",
+    "intimacy",
     "motivation", "motivation_note",
     "cycle_day",
     "notes",
