@@ -11,7 +11,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 import sheets
 
 # ── Config ────────────────────────────────────────────────────────────────────
-BOT_TOKEN = "8635126806:AAEaTwElzvFCL29gHaZ9-vu5SQZIzcfBmRs"
+BOT_TOKEN = "8635126806:AAFP-bJLAZgnASFNihhLTviyktvsopiQ9dc"
 MY_CHAT_ID = 829596300
 CHECKIN_HOUR = 21
 CHECKIN_MINUTE = 0
